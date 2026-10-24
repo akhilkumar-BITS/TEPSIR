@@ -1,0 +1,104 @@
+name: tepsir
+
+# Infrastructure for local development and demos.
+#   docker compose -f docker/docker-compose.yml up -d
+#
+# That starts PostgreSQL (pgvector) and Redis, which is the normal setup while
+# developing the API with uvicorn. Documents are stored on local disk by default.
+#
+# To also run the API in a container:
+#   docker compose -f docker/docker-compose.yml --profile full up -d --build
+#
+# MinIO is optional and lives behind the "minio" profile, because the MinIO
+# images are not always available anonymously from public registries:
+#   docker compose -f docker/docker-compose.yml --profile minio up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tepsir-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tepsir}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tepsir}
+      POSTGRES_DB: ${POSTGRES_DB:-tepsir}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tepsir} -d ${POSTGRES_DB:-tepsir}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: tepsir-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Optional object storage. Enable with: --profile minio
+  # The bucket is created by the API at startup, so no init container is needed.
+  minio:
+    image: minio/minio:latest
+    container_name: tepsir-minio
+    profiles: ["minio"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-tepsir}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-tepsir-secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: tepsir-api
+    profiles: ["full"]
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      POSTGRES_DSN: postgresql+asyncpg://${POSTGRES_USER:-tepsir}:${POSTGRES_PASSWORD:-tepsir}@postgres:5432/${POSTGRES_DB:-tepsir}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_DIR: /data/storage
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-dev}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin-password}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:4173}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - backend_storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  backend_storage:
