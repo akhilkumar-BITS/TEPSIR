@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     llm_max_connections: int = 10
     llm_max_keepalive_connections: int = 5
 
+    # Conversational agent (optional; shares the DEEPSEEK_* provider settings)
+    agent_enabled: bool = True
+    agent_max_steps: int = 6
+    agent_verification_enabled: bool = True
+    agent_max_verify_rounds: int = 1
+    agent_max_message_chars: int = 4_000
+    agent_max_history_messages: int = 20
+    agent_max_conversations_page: int = 50
+    agent_heartbeat_seconds: float = 15.0
+    agent_stream_timeout_seconds: float = 120.0
+
     # Bootstrap admin (created on startup when both are set)
     seed_admin_email: str | None = None
     seed_admin_password: str | None = None

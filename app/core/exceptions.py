@@ -50,6 +50,11 @@ class IndexingError(TEPSIRError):
     code = "indexing_failed"
 
 
+class ServiceUnavailableError(TEPSIRError):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "service_unavailable"
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(TEPSIRError)
     async def _handle_domain_error(_: Request, exc: TEPSIRError) -> JSONResponse:

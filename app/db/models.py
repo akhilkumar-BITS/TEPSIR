@@ -11,10 +11,11 @@ avoids a second datastore at this scale and keeps deletes transactional.
 
 import enum
 import uuid
+from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import settings
@@ -32,6 +33,11 @@ class DocumentStatus(enum.StrEnum):
     PROCESSING = "PROCESSING"
     INDEXED = "INDEXED"
     FAILED = "FAILED"
+
+
+class MessageRole(enum.StrEnum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -52,6 +58,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     searches: Mapped[list["SearchQuery"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+    conversations: Mapped[list["Conversation"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -126,3 +135,44 @@ class SearchQuery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     result_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
     user: Mapped[User] = relationship(back_populates="searches")
+
+
+class Conversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversations"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="conversations")
+    messages: Mapped[list["ConversationMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ConversationMessage.created_at",
+    )
+
+
+class ConversationMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversation_messages"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole, name="message_role", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Tool trace and validated citations are stored with the answer so a reload
+    # reproduces exactly what the agent did, without re-running it.
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    warning: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")
