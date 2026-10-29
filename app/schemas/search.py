@@ -26,6 +26,27 @@ class SearchResponse(BaseModel):
     elapsed_ms: int
 
 
+class Citation(BaseModel):
+    # 1-based passage number used by the answer, so clients can highlight it.
+    marker: int = Field(ge=1)
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    page_number: int | None
+    score: float
+
+
+class AnswerResponse(BaseModel):
+    query: str
+    # None when synthesis is disabled, unavailable, or had nothing to work with.
+    answer: str | None
+    citations: list[Citation]
+    results: list[SearchHit]
+    model: str | None
+    elapsed_ms: int
+    warning: str | None
+
+
 class SearchHistoryItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -3,11 +3,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, DbSession, get_embedder, get_embedding_cache
+from app.api.deps import LLM, CurrentUser, DbSession, get_embedder, get_embedding_cache
 from app.core.cache import EmbeddingCache
 from app.db.models import Role
 from app.rag.embeddings import EmbeddingProvider
-from app.schemas.search import SearchHistoryItem, SearchRequest, SearchResponse
+from app.schemas.search import (
+    AnswerResponse,
+    SearchHistoryItem,
+    SearchRequest,
+    SearchResponse,
+)
+from app.services.answer_service import AnswerService
 from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -35,6 +41,21 @@ async def search(
     return await SearchService(session, embedder=embedder, cache=cache).search(
         user_id=user.id, query=payload.query, top_k=payload.top_k
     )
+
+
+@router.post("/answer", response_model=AnswerResponse)
+async def answer(
+    payload: SearchRequest,
+    user: CurrentUser,
+    session: DbSession,
+    embedder: Embedder,
+    cache: Cache,
+    llm: LLM,
+) -> AnswerResponse:
+    """Answer a policy question from retrieved passages, with citations."""
+    return await AnswerService(
+        session, embedder=embedder, cache=cache, llm=llm
+    ).answer(user_id=user.id, query=payload.query, top_k=payload.top_k)
 
 
 @router.get("/history", response_model=SearchHistoryResponse)

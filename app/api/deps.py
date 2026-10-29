@@ -15,6 +15,7 @@ from app.core.security import decode_access_token
 from app.db.models import Role, User
 from app.db.session import get_db
 from app.rag.embeddings import EmbeddingProvider
+from app.rag.llm import LLMClient
 from app.repositories.user_repository import UserRepository
 from app.storage.base import ObjectStore
 
@@ -33,6 +34,11 @@ def get_embedder(request: Request) -> EmbeddingProvider:
 
 def get_embedding_cache(request: Request) -> EmbeddingCache:
     return request.app.state.embedding_cache
+
+
+def get_llm(request: Request) -> LLMClient | None:
+    # None when answer synthesis is disabled or no API key is configured.
+    return getattr(request.app.state, "llm", None)
 
 
 async def get_current_user(
@@ -62,3 +68,4 @@ def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(require_admin)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+LLM = Annotated[LLMClient | None, Depends(get_llm)]

@@ -14,6 +14,7 @@ from app.core.exceptions import install_exception_handlers
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal, engine
 from app.rag.embeddings import build_embedding_provider
+from app.rag.llm import build_llm_client
 from app.services.auth_service import AuthService
 from app.storage.base import build_object_store
 
@@ -38,16 +39,23 @@ async def lifespan(app: FastAPI):
     app.state.object_store = store
     app.state.embedder = build_embedding_provider()
     app.state.embedding_cache = EmbeddingCache()
+    # None when synthesis is disabled or DEEPSEEK_API_KEY is unset.
+    app.state.llm = build_llm_client()
 
     async with SessionLocal() as session:
         await AuthService(session).ensure_seed_admin()
 
     logger.info(
-        "TEPSIR API ready (env=%s, embedder=%s)", settings.environment, app.state.embedder.name
+        "TEPSIR API ready (env=%s, embedder=%s, answer_synthesis=%s)",
+        settings.environment,
+        app.state.embedder.name,
+        app.state.llm is not None,
     )
     try:
         yield
     finally:
+        if app.state.llm is not None:
+            await app.state.llm.aclose()
         await app.state.embedding_cache.close()
         await engine.dispose()
 

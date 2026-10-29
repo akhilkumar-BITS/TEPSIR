@@ -63,6 +63,20 @@ class Settings(BaseSettings):
     search_top_k_max: int = 20
     max_search_query_length: int = 500
 
+    # Answer synthesis (optional; search works without a key)
+    llm_enabled: bool = True
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    llm_model: str = "deepseek-flash"
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 1
+    llm_max_output_tokens: int = 700
+    llm_temperature: float = 0.1
+    llm_max_context_chars: int = 12_000
+    llm_max_passage_chars: int = 2_000
+    llm_max_connections: int = 10
+    llm_max_keepalive_connections: int = 5
+
     # Bootstrap admin (created on startup when both are set)
     seed_admin_email: str | None = None
     seed_admin_password: str | None = None
