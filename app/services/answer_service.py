@@ -20,6 +20,7 @@ from app.core.cache import EmbeddingCache
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.llm import LLMClient
 from app.rag.prompting import PassageSource, build_answer_prompt, select_citations
+from app.rag.reranking import Reranker
 from app.schemas.search import AnswerResponse, Citation, SearchHit
 from app.services.search_service import SearchService
 
@@ -54,8 +55,11 @@ class AnswerService:
         cache: EmbeddingCache | None = None,
         llm: LLMClient | None = None,
         search_service: SearchService | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
-        self.search = search_service or SearchService(session, embedder=embedder, cache=cache)
+        self.search = search_service or SearchService(
+            session, embedder=embedder, cache=cache, reranker=reranker
+        )
         self.llm = llm
 
     async def answer(

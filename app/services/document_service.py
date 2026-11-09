@@ -75,8 +75,24 @@ class DocumentService:
             raise ValidationError("A title is required.")
 
         checksum = hashlib.sha256(data).hexdigest()
+        logger.info(
+            "Upload requested: filename=%s size=%d checksum=%s uploaded_by=%s",
+            filename,
+            len(data),
+            checksum,
+            uploaded_by,
+        )
         duplicate = await self.documents.get_by_checksum(checksum)
         if duplicate is not None:
+            logger.warning(
+                "Duplicate upload rejected: checksum=%s filename=%s existing_id=%s "
+                "existing_title=%r uploaded_by=%s",
+                checksum,
+                filename,
+                duplicate.id,
+                duplicate.title,
+                uploaded_by,
+            )
             raise ConflictError(
                 f"This file was already uploaded as '{duplicate.title}'."
             )

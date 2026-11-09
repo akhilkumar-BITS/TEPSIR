@@ -3,10 +3,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.api.deps import LLM, CurrentUser, DbSession, get_embedder, get_embedding_cache
+from app.api.deps import (
+    LLM,
+    CurrentUser,
+    DbSession,
+    get_embedder,
+    get_embedding_cache,
+    get_reranker,
+)
 from app.core.cache import EmbeddingCache
 from app.db.models import Role
 from app.rag.embeddings import EmbeddingProvider
+from app.rag.reranking import Reranker
 from app.schemas.search import (
     AnswerResponse,
     SearchHistoryItem,
@@ -20,6 +28,7 @@ router = APIRouter(prefix="/search", tags=["search"])
 
 Embedder = Annotated[EmbeddingProvider, Depends(get_embedder)]
 Cache = Annotated[EmbeddingCache, Depends(get_embedding_cache)]
+RerankerDep = Annotated[Reranker | None, Depends(get_reranker)]
 
 
 class SearchHistoryResponse(BaseModel):
@@ -36,11 +45,12 @@ async def search(
     session: DbSession,
     embedder: Embedder,
     cache: Cache,
+    reranker: RerankerDep,
 ) -> SearchResponse:
     """Semantic search across indexed policy documents."""
-    return await SearchService(session, embedder=embedder, cache=cache).search(
-        user_id=user.id, query=payload.query, top_k=payload.top_k
-    )
+    return await SearchService(
+        session, embedder=embedder, cache=cache, reranker=reranker
+    ).search(user_id=user.id, query=payload.query, top_k=payload.top_k)
 
 
 @router.post("/answer", response_model=AnswerResponse)
@@ -50,11 +60,12 @@ async def answer(
     session: DbSession,
     embedder: Embedder,
     cache: Cache,
+    reranker: RerankerDep,
     llm: LLM,
 ) -> AnswerResponse:
     """Answer a policy question from retrieved passages, with citations."""
     return await AnswerService(
-        session, embedder=embedder, cache=cache, llm=llm
+        session, embedder=embedder, cache=cache, llm=llm, reranker=reranker
     ).answer(user_id=user.id, query=payload.query, top_k=payload.top_k)
 
 

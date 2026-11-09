@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     search_top_k_max: int = 20
     max_search_query_length: int = 500
 
+    # Cross-encoder reranking (optional; falls back to vector order on failure)
+    reranker_enabled: bool = True
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_candidate_multiplier: int = 20
+    rerank_max_candidates: int = 50
+
     # Answer synthesis (optional; search works without a key)
     llm_enabled: bool = True
     deepseek_api_key: str | None = None
@@ -81,7 +87,7 @@ class Settings(BaseSettings):
     agent_enabled: bool = True
     agent_max_steps: int = 6
     agent_verification_enabled: bool = True
-    agent_max_verify_rounds: int = 1
+    agent_max_verify_rounds: int = 2
     agent_max_message_chars: int = 4_000
     agent_max_history_messages: int = 20
     agent_max_conversations_page: int = 50

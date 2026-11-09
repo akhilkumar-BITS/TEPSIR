@@ -16,7 +16,9 @@ class SearchHit(BaseModel):
     chunk_index: int
     page_number: int | None
     content: str
-    # Cosine similarity in [0, 1]; higher is more relevant.
+    # Relevance in [0, 1]; higher is more relevant. Cosine similarity when
+    # reranking is off. When reranking is on this is relative relevance: the
+    # best candidate for the query is 1.0 and the weakest fetched one is 0.0.
     score: float
 
 

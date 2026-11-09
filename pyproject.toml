@@ -30,10 +30,13 @@ dependencies = [
 [project.optional-dependencies]
 local-embeddings = [
     "sentence-transformers>=3.3,<4.0",
+    # torch builds before 2.3 are compiled against NumPy 1.x; with NumPy 2.x
+    # tensor.numpy() raises "RuntimeError: Numpy is not available".
+    "numpy<2",
 ]
 dev = [
     "pytest>=8.3,<9.0",
-    "pytest-asyncio>=0.24,<1.0",
+"pytest-asyncio>=0.24,<1.0",
     "aiosqlite>=0.20,<1.0",
     "ruff>=0.8,<1.0",
     "mypy>=1.13,<2.0",

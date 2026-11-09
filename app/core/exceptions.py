@@ -1,7 +1,11 @@
 """Domain errors and their translation into HTTP responses."""
 
+import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 class TEPSIRError(Exception):
@@ -57,7 +61,18 @@ class ServiceUnavailableError(TEPSIRError):
 
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(TEPSIRError)
-    async def _handle_domain_error(_: Request, exc: TEPSIRError) -> JSONResponse:
+    async def _handle_domain_error(request: Request, exc: TEPSIRError) -> JSONResponse:
+        # 5xx are server-side faults, log as errors; 4xx are client faults, log
+        # as warnings but still capture the request path for traceability.
+        log = logger.error if exc.status_code >= 500 else logger.warning
+        log(
+            "%s %s -> %d %s: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.code,
+            exc.message,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.message, "code": exc.code},

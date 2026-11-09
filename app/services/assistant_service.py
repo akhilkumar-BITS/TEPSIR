@@ -40,6 +40,7 @@ from app.db.models import Conversation, ConversationMessage, MessageRole
 from app.db.session import SessionLocal
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.prompting import extract_citation_markers
+from app.rag.reranking import Reranker
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
 from app.services.search_service import SearchService
@@ -131,11 +132,13 @@ class AssistantService:
         cache: EmbeddingCache | None = None,
         chat_model: BaseChatModel | None = None,
         verifier_model: BaseChatModel | None = None,
+        reranker: Reranker | None = None,
     ) -> None:
         self.session = session
         self.user_id = user_id
         self.embedder = embedder
         self.cache = cache or EmbeddingCache()
+        self.reranker = reranker
         self.conversations = ConversationRepository(session)
         self.chat_model = chat_model
         self.verifier_model = verifier_model
@@ -194,9 +197,10 @@ class AssistantService:
             raise ServiceUnavailableError(_NOT_CONFIGURED)
         # The reviewer answers with a short JSON object, but thinking models spend
         # completion tokens on reasoning first; too small a budget truncates the
-        # content and every verdict degrades to PASS.
+        # content and every verdict degrades to PASS. The graph also recovers a
+        # verdict from reasoning_content when content comes back empty.
         verifier_model = self.verifier_model or build_chat_model(
-            temperature=0.0, max_tokens=1_000, streaming=False
+            temperature=0.0, max_tokens=2_000, streaming=False
         )
         if verifier_model is None:
             raise ServiceUnavailableError(_NOT_CONFIGURED)
@@ -256,7 +260,12 @@ class AssistantService:
 
             context = ToolContext(
                 user_id=self.user_id,
-                search=SearchService(session, embedder=self.embedder, cache=self.cache),
+                search=SearchService(
+                    session,
+                    embedder=self.embedder,
+                    cache=self.cache,
+                    reranker=self.reranker,
+                ),
                 documents=DocumentRepository(session),
             )
             graph = build_agent_graph(

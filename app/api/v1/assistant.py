@@ -15,10 +15,17 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response, status
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import CurrentUser, DbSession, get_embedder, get_embedding_cache
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    get_embedder,
+    get_embedding_cache,
+    get_reranker,
+)
 from app.core.cache import EmbeddingCache
 from app.core.config import settings
 from app.rag.embeddings import EmbeddingProvider
+from app.rag.reranking import Reranker
 from app.schemas.assistant import (
     ConversationCreateRequest,
     ConversationDetailOut,
@@ -34,12 +41,19 @@ router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 Embedder = Annotated[EmbeddingProvider, Depends(get_embedder)]
 Cache = Annotated[EmbeddingCache, Depends(get_embedding_cache)]
+RerankerDep = Annotated[Reranker | None, Depends(get_reranker)]
 
 
 def _service(
-    session: DbSession, user: CurrentUser, embedder: Embedder, cache: Cache
+    session: DbSession,
+    user: CurrentUser,
+    embedder: Embedder,
+    cache: Cache,
+    reranker: Reranker | None = None,
 ) -> AssistantService:
-    return AssistantService(session, user_id=user.id, embedder=embedder, cache=cache)
+    return AssistantService(
+        session, user_id=user.id, embedder=embedder, cache=cache, reranker=reranker
+    )
 
 
 @router.post(
@@ -122,6 +136,7 @@ async def send_message(
     session: DbSession,
     embedder: Embedder,
     cache: Cache,
+    reranker: RerankerDep,
 ) -> EventSourceResponse:
     """Send a message and stream the assistant's turn as Server-Sent Events.
 
@@ -129,7 +144,7 @@ async def send_message(
     ``answer_reset`` (the reviewer rejected the draft), ``citations``, ``done``,
     ``error``. Event data is JSON.
     """
-    service = _service(session, user, embedder, cache)
+    service = _service(session, user, embedder, cache, reranker)
     turn = await service.prepare_turn(conversation_id=conversation_id, content=payload.content)
 
     async def events() -> Any:

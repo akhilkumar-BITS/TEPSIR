@@ -114,10 +114,22 @@ def _tool_rounds(messages: list[BaseMessage]) -> int:
     )
 
 
-def _format_passages(context: ToolContext) -> str:
+def _format_passages(context: ToolContext, focus_markers: set[int] | None = None) -> str:
+    """Render retrieved passages for the reviewer.
+
+    Passages are capped per block and the whole set by a character budget, so a
+    turn with many searches can overflow it. Cited passages go first and are
+    always included: otherwise a marker the answer used may be cut from the
+    reviewer's view, and a correct citation gets rejected as hallucinated.
+    """
+    passages = list(context.passages)
+    if focus_markers:
+        passages.sort(key=lambda passage: passage.marker not in focus_markers)
+
     lines: list[str] = []
     used = 0
-    for passage in context.passages:
+    omitted = 0
+    for passage in passages:
         content = passage.content
         if len(content) > _MAX_VERIFIER_PASSAGE_CHARS:
             content = content[:_MAX_VERIFIER_PASSAGE_CHARS].rstrip() + " …"
@@ -125,28 +137,48 @@ def _format_passages(context: ToolContext) -> str:
         if passage.page_number is not None:
             source += f", page {passage.page_number}"
         block = f"[{passage.marker}] {source}\n{content}"
-        if used + len(block) > _MAX_VERIFIER_CONTEXT_CHARS:
-            break
+        if used + len(block) > _MAX_VERIFIER_CONTEXT_CHARS and not (
+            focus_markers and passage.marker in focus_markers
+        ):
+            omitted += 1
+            continue
         lines.append(block)
         used += len(block)
-    return "\n\n".join(lines) if lines else "(no passages were retrieved)"
+    if not lines:
+        return "(no passages were retrieved)"
+    if omitted:
+        lines.append(f"[{omitted} further retrieved passage(s) omitted for length]")
+    return "\n\n".join(lines)
+
+
+_INVALID_VERDICT_REASON = "Reviewer reply was not JSON."
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Return the first JSON object that carries a ``verdict`` key.
+
+    ``raw_decode`` accepts trailing text and nested braces, so a reply wrapped in
+    prose or a code fence still parses. Slicing first-``{`` to last-``}`` did not:
+    a brace anywhere in the prose (quoted passages often have one) broke it.
+    """
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and "verdict" in payload:
+            return payload
+    return None
 
 
 def _parse_verdict(raw: str) -> dict[str, Any]:
     """Parse the reviewer's JSON leniently; anything unusable means PASS."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return {"verdict": "PASS", "reason": "Reviewer reply was not JSON.", "next_query": None}
-    try:
-        payload = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return {"verdict": "PASS", "reason": "Reviewer reply was not JSON.", "next_query": None}
+    payload = _extract_json_object(raw.strip())
+    if payload is None:
+        return {"verdict": "PASS", "reason": _INVALID_VERDICT_REASON, "next_query": None}
     verdict = str(payload.get("verdict", "PASS")).strip().upper()
     if verdict not in {"PASS", "REVISE"}:
         verdict = "PASS"
@@ -183,8 +215,11 @@ def build_agent_graph(
                     content=(
                         "The previous answer was rejected by the reviewer. "
                         f"Reason: {feedback}\n"
-                        "Retrieve what is missing with a differently worded search, then "
-                        "answer again using only supported claims."
+                        "Do not reply \"I don't know based on the available policy "
+                        "passages.\" while any retrieved passage is relevant to the "
+                        "question. Use a differently worded search only to fill the "
+                        "gap, then answer again from the passages you already have "
+                        "and cite them."
                     )
                 )
             )
@@ -211,10 +246,11 @@ def build_agent_graph(
         if answer.lower().startswith(_IDK_PREFIX) and not context.passages:
             return {"verdict": "PASS", "verify_attempts": attempt, "feedback": None}
 
+        cited_markers = {int(match.strip("[]")) for match in _CITATION_RE.findall(answer)}
         review_prompt = (
             f"Question:\n{user_question}\n\n"
             f"Proposed answer:\n{answer}\n\n"
-            f"Retrieved passages:\n{_format_passages(context)}"
+            f"Retrieved passages:\n{_format_passages(context, cited_markers)}"
         )
         try:
             raw = await verifier_model.ainvoke(
@@ -223,7 +259,17 @@ def build_agent_graph(
                     SystemMessage(content=review_prompt),
                 ]
             )
-            verdict = _parse_verdict(_message_text(raw))
+            reply = _message_text(raw)
+            if not reply.strip():
+                # Thinking models can spend the whole completion budget on
+                # reasoning, leaving ``content`` empty; the verdict then sits in
+                # ``reasoning_content``.
+                reply = str(getattr(raw, "additional_kwargs", {}).get("reasoning_content") or "")
+            verdict = _parse_verdict(reply)
+            if verdict["reason"] == _INVALID_VERDICT_REASON:
+                logger.warning(
+                    "Reviewer reply was not JSON; accepting answer. Reply: %r", reply[:500]
+                )
         except Exception:
             logger.warning("Answer verification failed; accepting the answer", exc_info=True)
             return {"verdict": "PASS", "verify_attempts": attempt, "feedback": None}
@@ -263,7 +309,12 @@ def build_agent_graph(
     def route_after_agent(state: AgentState) -> Literal["tools", "verify", "end"]:
         last = state["messages"][-1]
         if isinstance(last, AIMessage) and last.tool_calls:
-            if _tool_rounds(state["messages"]) >= max_steps:
+            # Each revision pass gets a fresh tool budget. A single shared budget
+            # meant a first pass that used every step left the retry with no
+            # searches at all, so it could only repeat "I don't know".
+            rounds = _tool_rounds(state["messages"])
+            allowed = max_steps * (state.get("verify_attempts", 0) + 1)
+            if rounds >= allowed:
                 return "end"
             return "tools"
         return "verify" if verification_enabled else "end"

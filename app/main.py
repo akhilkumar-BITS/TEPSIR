@@ -15,6 +15,7 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal, engine
 from app.rag.embeddings import build_embedding_provider
 from app.rag.llm import build_llm_client
+from app.rag.reranking import build_reranker
 from app.services.auth_service import AuthService
 from app.storage.base import build_object_store
 
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
     app.state.object_store = store
     app.state.embedder = build_embedding_provider()
     app.state.embedding_cache = EmbeddingCache()
+    # None when RERANKER_ENABLED=false; the model itself loads on first search.
+    app.state.reranker = build_reranker()
     # None when synthesis is disabled or DEEPSEEK_API_KEY is unset.
     app.state.llm = build_llm_client()
 
@@ -46,9 +49,10 @@ async def lifespan(app: FastAPI):
         await AuthService(session).ensure_seed_admin()
 
     logger.info(
-        "TEPSIR API ready (env=%s, embedder=%s, answer_synthesis=%s)",
+        "TEPSIR API ready (env=%s, embedder=%s, reranker=%s, answer_synthesis=%s)",
         settings.environment,
         app.state.embedder.name,
+        app.state.reranker.name if app.state.reranker is not None else "off",
         app.state.llm is not None,
     )
     try:

@@ -16,6 +16,7 @@ from app.db.models import Role, User
 from app.db.session import get_db
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.llm import LLMClient
+from app.rag.reranking import Reranker
 from app.repositories.user_repository import UserRepository
 from app.storage.base import ObjectStore
 
@@ -34,6 +35,11 @@ def get_embedder(request: Request) -> EmbeddingProvider:
 
 def get_embedding_cache(request: Request) -> EmbeddingCache:
     return request.app.state.embedding_cache
+
+
+def get_reranker(request: Request) -> Reranker | None:
+    # None when reranking is disabled (RERANKER_ENABLED=false).
+    return getattr(request.app.state, "reranker", None)
 
 
 def get_llm(request: Request) -> LLMClient | None:
