@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -53,8 +53,19 @@ class Settings(BaseSettings):
     minio_bucket: str = "tepsir-documents"
 
     # Retrieval
-    embedding_provider: Literal["dev", "sentence-transformers"] = "dev"
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_provider: Literal["dev", "sentence-transformers", "qwen3"] = "dev"
+    # Fallback model for the sentence-transformers provider when no explicit
+    # model is passed. EMBEDDING_MODEL and SENTENCE_TRANSFORMER_MODEL are kept as
+    # older names so existing .env files keep working.
+    default_embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        validation_alias=AliasChoices(
+            "DEFAULT_EMBEDDING_MODEL", "SENTENCE_TRANSFORMER_MODEL", "EMBEDDING_MODEL"
+        ),
+    )
+    # Used only when EMBEDDING_PROVIDER=qwen3. Set EMBEDDING_DIMENSION to match the
+    # chosen size: 1024 (0.6B), 2560 (4B), 4096 (8B).
+    qwen3_embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
     embedding_dimension: int = 384
     chunk_size: int = 900
     chunk_overlap: int = 120

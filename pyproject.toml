@@ -30,6 +30,9 @@ dependencies = [
 [project.optional-dependencies]
 local-embeddings = [
     "sentence-transformers>=3.3,<4.0",
+    # Qwen3 (EMBEDDING_PROVIDER=qwen3) needs native Qwen3 support; the model is
+    # loaded with trust_remote_code, so no extra package is required.
+    "transformers>=4.51,<5.0",
     # torch builds before 2.3 are compiled against NumPy 1.x; with NumPy 2.x
     # tensor.numpy() raises "RuntimeError: Numpy is not available".
     "numpy<2",

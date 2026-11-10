@@ -248,6 +248,7 @@ pip install -e '.[dev]'
 
 alembic upgrade head
 uvicorn app.main:app --reload
+uvicorn app.main:app --reload --env-file .env
 ```
 
 - API docs: http://localhost:8000/docs
